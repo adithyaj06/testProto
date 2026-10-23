@@ -125,7 +125,7 @@ function App() {
                 {generating ? 'Generating...' : 'Generate test steps'}
               </Button>
               {error && <Alert severity="warning" className="form-alert">{error}</Alert>}
-              <p className="local-note">Generated with OpenAI. Review steps before use.</p>
+              <p className="local-note">Generated with Gemini. Review steps before use.</p>
             </Paper>
 
             <Paper component="section" elevation={0} className="output-panel">
@@ -147,7 +147,7 @@ function App() {
                 <>
                   <div className="generated-title"><Chip label="DRAFT" size="small" /> <span>{title}</span></div>
                   <ol className="steps-list">{steps.map((step, index) => <li key={`${index}-${step}`}><span className="list-number">{String(index + 1).padStart(2, '0')}</span><span>{step}</span></li>)}</ol>
-                  <div className="draft-footer">{copied ? 'Steps copied to clipboard' : 'Generated with OpenAI · Review before use'}</div>
+                  <div className="draft-footer">{copied ? 'Steps copied to clipboard' : 'Generated with Gemini · Review before use'}</div>
                 </>
               ) : (
                 <div className="empty-output">

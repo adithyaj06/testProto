@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import OpenAI from 'openai'
-import { generateSteps } from '../server/generateSteps.js'
+import { describeGeminiError, generateSteps } from '../server/generateSteps.js'
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== 'POST') {
@@ -31,11 +30,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(503).json({ error: error.message })
     }
 
-    const message = error instanceof OpenAI.APIError
-      ? error.status === 401
-        ? 'OpenAI rejected the API key. Check OPENAI_API_KEY in the deployment environment variables.'
-        : `OpenAI request failed (${error.status ?? 'unknown status'}).`
-      : 'Could not generate test steps. Please try again.'
-    return response.status(500).json({ error: message })
+    const result = describeGeminiError(error)
+    return response.status(result.status).json({ error: result.message })
   }
 }

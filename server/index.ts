@@ -1,7 +1,6 @@
 import 'dotenv/config'
-import OpenAI from 'openai'
 import { createServer } from 'node:http'
-import { generateSteps } from './generateSteps.js'
+import { describeGeminiError, generateSteps } from './generateSteps.js'
 
 const port = Number(process.env.API_PORT ?? 3001)
 
@@ -48,12 +47,8 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    const message = error instanceof OpenAI.APIError
-      ? error.status === 401
-        ? 'OpenAI rejected the API key. Check OPENAI_API_KEY.'
-        : `OpenAI request failed (${error.status ?? 'unknown status'}).`
-      : 'Could not generate test steps. Please try again.'
-    response.writeHead(500).end(JSON.stringify({ error: message }))
+    const result = describeGeminiError(error)
+    response.writeHead(result.status).end(JSON.stringify({ error: result.message }))
   }
 })
 
