@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { describeGeminiError, generateSteps } from '../server/generateSteps.js'
+import { describeGeminiError, generateSteps } from '../server/generateSteps.ts'
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== 'POST') {
@@ -21,7 +21,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
+    const startedAt = Date.now()
     const steps = await generateSteps(context, title)
+    console.info(`Gemini generation completed in ${Date.now() - startedAt}ms (context ${context.length} chars).`)
     return response.status(200).json({ steps })
   } catch (error) {
     console.error('Test step generation failed:', error)

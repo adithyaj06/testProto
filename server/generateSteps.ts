@@ -1,6 +1,9 @@
 import { GoogleGenAI, Type } from '@google/genai'
 
-export async function generateSteps(context: string, title: string): Promise<string[]> {
+export type GeneratedStep = { step: string; expectedResult: string }
+export type GeneratedTestCase = { title: string; section: string; steps: GeneratedStep[] }
+
+export async function generateSteps(context: string, title: string): Promise<GeneratedStep[]> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
     const error = new Error('Set GEMINI_API_KEY in your environment variables to enable generation.')
@@ -10,8 +13,8 @@ export async function generateSteps(context: string, title: string): Promise<str
 
   const ai = new GoogleGenAI({ apiKey })
   const response = await ai.models.generateContent({
-    model: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
-    contents: `Project context:\n${context.trim()}\n\nTest case title:\n${title.trim()}\n\nCreate 4 to 8 ordered test steps. Use only details supported by the context and make assumptions explicit.`,
+    model: process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite',
+    contents: `Project context:\n${context.trim()}\n\nTest case title:\n${title.trim()}\n\nWrite 3 to 5 short, actionable, ordered test steps. For each step, include a distinct expected result that can be observed or verified. Use only details supported by the context; state an assumption only when needed. Return no extra explanation.`,
     config: {
       systemInstruction: 'You write precise, actionable software test procedures based on the supplied project context and test case title.',
       responseMimeType: 'application/json',
@@ -20,7 +23,14 @@ export async function generateSteps(context: string, title: string): Promise<str
         properties: {
           steps: {
             type: Type.ARRAY,
-            items: { type: Type.STRING },
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                step: { type: Type.STRING },
+                expectedResult: { type: Type.STRING },
+              },
+              required: ['step', 'expectedResult'],
+            },
           },
         },
         required: ['steps'],
@@ -36,10 +46,74 @@ export async function generateSteps(context: string, title: string): Promise<str
     throw new Error('The model response did not contain a valid steps array.')
   }
 
-  const steps = parsed.steps.filter((step): step is string => typeof step === 'string' && step.trim().length > 0)
+  const steps = parsed.steps.filter((step): step is GeneratedStep =>
+    !!step && typeof step === 'object' && 'step' in step && typeof step.step === 'string' && step.step.trim().length > 0
+      && 'expectedResult' in step && typeof step.expectedResult === 'string' && step.expectedResult.trim().length > 0,
+  )
   if (steps.length === 0) throw new Error('The model did not return any test steps.')
 
   return steps
+}
+
+export async function generateTestCases(context: string, section: string, testType: string, count: number): Promise<GeneratedTestCase[]> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    const error = new Error('Set GEMINI_API_KEY in your environment variables to enable generation.')
+    error.name = 'MissingApiKeyError'
+    throw error
+  }
+
+  const ai = new GoogleGenAI({ apiKey })
+  const response = await ai.models.generateContent({
+    model: process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite',
+    contents: `Project context:\n${context.trim()}\n\nTest section: ${section.trim()}\nTest type: ${testType.trim()}\n\nGenerate exactly ${count} distinct ${testType.trim()} test cases for this section. Each case needs a concise title and 2 to 5 ordered, actionable steps. Each step must have a distinct, observable expected result. Cover meaningfully different behaviors relevant to this test type; use only details supported by the context.`,
+    config: {
+      systemInstruction: 'You create concise, non-duplicative software test cases with clear actions and verifiable expected results.',
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          cases: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                steps: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: { step: { type: Type.STRING }, expectedResult: { type: Type.STRING } },
+                    required: ['step', 'expectedResult'],
+                  },
+                },
+              },
+              required: ['title', 'steps'],
+            },
+          },
+        },
+        required: ['cases'],
+      },
+    },
+  })
+
+  if (!response.text) throw new Error('The model returned an empty response.')
+  const parsed: unknown = JSON.parse(response.text)
+  if (!parsed || typeof parsed !== 'object' || !('cases' in parsed) || !Array.isArray(parsed.cases)) {
+    throw new Error('The model response did not contain a valid test cases array.')
+  }
+
+  const cases = parsed.cases.flatMap((item): GeneratedTestCase[] => {
+    if (!item || typeof item !== 'object' || !('title' in item) || typeof item.title !== 'string' || !item.title.trim()
+      || !('steps' in item) || !Array.isArray(item.steps)) return []
+    const steps = item.steps.filter((step): step is GeneratedStep =>
+      !!step && typeof step === 'object' && 'step' in step && typeof step.step === 'string' && !!step.step.trim()
+        && 'expectedResult' in step && typeof step.expectedResult === 'string' && !!step.expectedResult.trim(),
+    )
+    return steps.length ? [{ title: item.title.trim(), section: section.trim(), steps }] : []
+  })
+  if (!cases.length) throw new Error('The model did not return any valid test cases.')
+  return cases
 }
 
 export function describeGeminiError(error: unknown): { status: number; message: string } {
