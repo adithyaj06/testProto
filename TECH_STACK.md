@@ -17,7 +17,7 @@ Casework (branded as TestProto in the interface) is a browser-based tool for dra
 - **Node.js HTTP server** with TypeScript, run locally through `tsx`; it exposes `POST /api/generate`.
 - **Vercel Functions** for the deployed generation endpoint in `api/generate.ts`.
 - **Groq API**, called through its OpenAI-compatible chat completions endpoint. The model is selected with `GROQ_MODEL` and defaults to `openai/gpt-oss-20b`.
-- Groq requests use low reasoning effort and strict JSON Schema output. Batch test cases have exactly three concise steps each to limit output size and latency.
+- Groq requests use low reasoning effort and JSON object output. The server validates and normalizes the model response; batch test cases have exactly three concise steps each to limit output size and latency.
 - Generated responses are validated on the server before returning them to the browser.
 - **dotenv** loads local environment variables. `GROQ_API_KEY` stays on the server and must not be exposed in frontend variables.
 

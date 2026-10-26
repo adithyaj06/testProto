@@ -6,6 +6,7 @@ type GroqResponse<T> = {
   choices?: { message?: { content?: string | null; refusal?: string | null } }[]
   error?: GroqError
 }
+type GroqStep = { step: string; expected_result?: string; expectedResult?: string }
 
 class GroqApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) {
@@ -14,7 +15,7 @@ class GroqApiError extends Error {
   }
 }
 
-async function generateJson<T>(systemPrompt: string, userPrompt: string, schemaName: string, schema: object): Promise<T> {
+async function generateJson<T>(systemPrompt: string, userPrompt: string, schema: object): Promise<T> {
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) {
     const error = new Error('Set GROQ_API_KEY in your environment variables to enable generation.')
@@ -31,14 +32,11 @@ async function generateJson<T>(systemPrompt: string, userPrompt: string, schemaN
     body: JSON.stringify({
       model: process.env.GROQ_MODEL ?? 'openai/gpt-oss-20b',
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: `${systemPrompt}\nReturn only a valid JSON object matching this structure. Include every listed key exactly as written:\n${JSON.stringify(schema)}` },
         { role: 'user', content: userPrompt },
       ],
       reasoning_effort: 'low',
-      response_format: {
-        type: 'json_schema',
-        json_schema: { name: schemaName, strict: true, schema },
-      },
+      response_format: { type: 'json_object' },
     }),
   })
 
@@ -59,17 +57,16 @@ const stepSchema = {
   type: 'object',
   properties: {
     step: { type: 'string' },
-    expectedResult: { type: 'string' },
+    expected_result: { type: 'string' },
   },
-  required: ['step', 'expectedResult'],
+  required: ['step', 'expected_result'],
   additionalProperties: false,
 }
 
 export async function generateSteps(context: string, title: string): Promise<GeneratedStep[]> {
-  const result = await generateJson<{ steps: GeneratedStep[] }>(
+  const result = await generateJson<{ steps: GroqStep[] }>(
     'You write precise, actionable software test procedures based on the supplied project context and test case title.',
-    `Project context:\n${context.trim()}\n\nTest case title:\n${title.trim()}\n\nWrite 3 to 5 short, actionable, ordered test steps. For each step, include a distinct expected result that can be observed or verified. Use only details supported by the context; state an assumption only when needed. Return no extra explanation.`,
-    'test_steps',
+    `Project context:\n${context.trim()}\n\nTest case title:\n${title.trim()}\n\nWrite 3 to 5 short, actionable, ordered test steps. Every step must include both a distinct action and an observable expected result. Use the exact JSON keys “step” and “expected_result” for each item. Use only details supported by the context; state an assumption only when needed. Return no extra explanation.`,
     {
       type: 'object',
       properties: { steps: { type: 'array', items: stepSchema } },
@@ -79,16 +76,15 @@ export async function generateSteps(context: string, title: string): Promise<Gen
   )
 
   if (!result || !Array.isArray(result.steps)) throw new Error('Groq did not return a valid steps array.')
-  const steps = result.steps.filter(isGeneratedStep)
+  const steps = result.steps.filter(isGroqStep).map(toGeneratedStep)
   if (!steps.length) throw new Error('Groq did not return any valid test steps.')
   return steps
 }
 
 export async function generateTestCases(context: string, section: string, testType: string, count: number): Promise<GeneratedTestCase[]> {
-  const result = await generateJson<{ cases: { title: string; steps: GeneratedStep[] }[] }>(
+  const result = await generateJson<{ cases: { title: string; steps: GroqStep[] }[] }>(
     'You create concise, non-duplicative software test cases with clear actions and verifiable expected results.',
-    `Project context:\n${context.trim()}\n\nTest section: ${section.trim()}\nTest type: ${testType.trim()}\n\nGenerate exactly ${count} distinct ${testType.trim()} test cases for this section. Each case must have a concise title and exactly 3 short, ordered steps. Each step must describe one action and its distinct, observable expected result. Keep every field concise. Cover meaningfully different behaviors relevant to this test type; use only details supported by the context.`,
-    'test_cases',
+    `Project context:\n${context.trim()}\n\nTest section: ${section.trim()}\nTest type: ${testType.trim()}\n\nGenerate exactly ${count} distinct ${testType.trim()} test cases for this section. Each case must have a concise title and exactly 3 short, ordered steps. Every step must include the exact keys “step” and “expected_result”, with one action and its distinct, observable expected result. Keep every field concise. Cover meaningfully different behaviors relevant to this test type; use only details supported by the context.`,
     {
       type: 'object',
       properties: {
@@ -110,17 +106,23 @@ export async function generateTestCases(context: string, section: string, testTy
   if (!result || !Array.isArray(result.cases)) throw new Error('Groq did not return a valid test cases array.')
   const cases = result.cases.flatMap((item): GeneratedTestCase[] => {
     if (!item || typeof item.title !== 'string' || !item.title.trim() || !Array.isArray(item.steps)) return []
-    const steps = item.steps.filter(isGeneratedStep)
+    const steps = item.steps.filter(isGroqStep).map(toGeneratedStep)
     return steps.length === 3 ? [{ title: item.title.trim(), section: section.trim(), steps }] : []
   })
   if (cases.length !== count) throw new Error(`Groq did not return ${count} valid test cases with exactly 3 steps each.`)
   return cases
 }
 
-function isGeneratedStep(value: unknown): value is GeneratedStep {
-  return !!value && typeof value === 'object'
-    && 'step' in value && typeof value.step === 'string' && !!value.step.trim()
-    && 'expectedResult' in value && typeof value.expectedResult === 'string' && !!value.expectedResult.trim()
+function isGroqStep(value: unknown): value is GroqStep {
+  if (!value || typeof value !== 'object' || !('step' in value) || typeof value.step !== 'string' || !value.step.trim()) return false
+  const expectedResult = 'expected_result' in value ? value.expected_result : undefined
+  const camelExpectedResult = 'expectedResult' in value ? value.expectedResult : undefined
+  return (typeof expectedResult === 'string' && !!expectedResult.trim())
+    || (typeof camelExpectedResult === 'string' && !!camelExpectedResult.trim())
+}
+
+function toGeneratedStep(step: GroqStep): GeneratedStep {
+  return { step: step.step.trim(), expectedResult: (step.expected_result ?? step.expectedResult ?? '').trim() }
 }
 
 export function describeGroqError(error: unknown): { status: number; message: string } {

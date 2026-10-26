@@ -12,7 +12,7 @@ A Vite, React, TypeScript, and Material UI test-case generator. Project context 
 
 Vercel uses `api/generate.ts` for the `/api/generate` endpoint and `api/generate-cases.ts` for `/api/generate-cases`. The Vite frontend is built from `npm run build` into `dist`. The key belongs in Vercel's server environment variables, not in a source file, `VITE_*` variable, or frontend setting. Groq free-tier rate limits apply.
 
-The `/api/generate-cases` endpoint generates five cases for the selected test section and test type, with exactly three steps per case. Groq requests use low reasoning effort and strict JSON Schema output. Selected cases can be downloaded as `test-cases.xlsx`, with one row per test step and columns for test case title, test section, step, and expected result.
+The `/api/generate-cases` endpoint generates five cases for the selected test section and test type, with exactly three steps per case. Groq requests use low reasoning effort and JSON object output; the server validates and normalizes every returned step before sending it to the app. Selected cases can be downloaded as `test-cases.xlsx`, with one row per test step and columns for test case title, test section, step, and expected result.
 
 ## Local setup
 
