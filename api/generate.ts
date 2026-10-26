@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { describeGroqError, generateSteps } from '../server/generateSteps.ts'
+import { describeGroqError, generateSteps } from '../server/generateSteps.js'
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== 'POST') {
