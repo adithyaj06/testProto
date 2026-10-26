@@ -53,7 +53,14 @@ function zip(files: { name: string; data: string }[]) {
   write32(endView, 0, 0x06054b50); write16(endView, 4, 0); write16(endView, 6, 0)
   write16(endView, 8, files.length); write16(endView, 10, files.length)
   write32(endView, 12, centralSize); write32(endView, 16, offset); write16(endView, 20, 0)
-  return new Blob([...localParts, ...centralParts, end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const parts = [...localParts, ...centralParts, end]
+  const archive = new Uint8Array(parts.reduce((size, part) => size + part.length, 0))
+  let position = 0
+  for (const part of parts) {
+    archive.set(part, position)
+    position += part.length
+  }
+  return new Blob([archive.buffer as ArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 }
 
 export function downloadCasesAsXlsx(cases: GeneratedTestCase[]) {
