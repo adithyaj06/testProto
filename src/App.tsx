@@ -39,9 +39,9 @@ function App() {
         </div>
 
         <div className="builder-grid">
+          <TestCaseGenerator context={context} />
           <TestStepsGenerator context={context} />
         </div>
-        <TestCaseGenerator context={context} />
 
         <footer className="workspace-footer">
           <span>CASEWORK <span className="footer-separator">/</span> TEST DESIGN</span>
