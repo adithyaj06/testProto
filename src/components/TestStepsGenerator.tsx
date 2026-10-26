@@ -87,7 +87,7 @@ export function TestStepsGenerator({ context }: TestStepsGeneratorProps) {
         </Button>
       </div>
       {error && <Alert severity="warning" className="form-alert">{error}</Alert>}
-      <p className="local-note">Generated with Gemini. Review steps before use.</p>
+      <p className="local-note">Generated with Groq. Review steps before use.</p>
       <div className="output-heading">
         <div className="panel-title">
           <span className="step-index output-index"><ChecklistRoundedIcon fontSize="small" /></span>
@@ -112,7 +112,7 @@ export function TestStepsGenerator({ context }: TestStepsGeneratorProps) {
               <strong className="step-label expected-label">Expected result</strong><span className="expected-result">{step.expectedResult}</span>
             </div>
           </li>)}</ol>
-          <div className="draft-footer">{copied ? 'Steps copied to clipboard' : 'Generated with Gemini · Review before use'}</div>
+          <div className="draft-footer">{copied ? 'Steps copied to clipboard' : 'Generated with Groq · Review before use'}</div>
         </>
       ) : (
         <div className="empty-output">

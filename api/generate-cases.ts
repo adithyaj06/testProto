@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { describeGeminiError, generateTestCases } from '../server/generateSteps.js'
+import { describeGroqError, generateTestCases } from '../server/generateSteps.js'
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   if (request.method !== 'POST') {
@@ -22,14 +22,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
   try {
     const startedAt = Date.now()
     const cases = await generateTestCases(context, section, testType, 5)
-    console.info(`Gemini generated ${cases.length} test cases in ${Date.now() - startedAt}ms (context ${context.length} chars).`)
+    console.info(`Groq generated ${cases.length} test cases in ${Date.now() - startedAt}ms (context ${context.length} chars).`)
     return response.status(200).json({ cases })
   } catch (error) {
     console.error('Test case generation failed:', error)
     if (error instanceof Error && error.name === 'MissingApiKeyError') {
       return response.status(503).json({ error: error.message })
     }
-    const result = describeGeminiError(error)
+    const result = describeGroqError(error)
     return response.status(result.status).json({ error: result.message })
   }
 }

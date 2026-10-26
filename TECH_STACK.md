@@ -2,7 +2,7 @@
 
 ## Product
 
-Casework (branded as TestProto in the interface) is a browser-based tool for drafting software test procedures from project context and a test case title. It sends those inputs to Google Gemini and displays a structured list of generated steps that can be copied or cleared.
+Casework (branded as TestProto in the interface) is a browser-based tool for drafting software test procedures from project context and a test case title. It sends those inputs to Groq and displays a structured list of generated steps that can be copied or cleared.
 
 ## Frontend
 
@@ -16,9 +16,10 @@ Casework (branded as TestProto in the interface) is a browser-based tool for dra
 
 - **Node.js HTTP server** with TypeScript, run locally through `tsx`; it exposes `POST /api/generate`.
 - **Vercel Functions** for the deployed generation endpoint in `api/generate.ts`.
-- **Google Gemini API**, accessed with Google's `@google/genai` SDK. The model is selected with `GEMINI_MODEL` and defaults to `gemini-3.5-flash-lite` for low-latency generation.
-- **JSON structured output** is requested from Gemini, with generated steps validated on the server before returning them.
-- **dotenv** loads local environment variables. `GEMINI_API_KEY` stays on the server and must not be exposed in frontend variables.
+- **Groq API**, called through its OpenAI-compatible chat completions endpoint. The model is selected with `GROQ_MODEL` and defaults to `openai/gpt-oss-20b`.
+- Groq requests use low reasoning effort and strict JSON Schema output. Batch test cases have exactly three concise steps each to limit output size and latency.
+- Generated responses are validated on the server before returning them to the browser.
+- **dotenv** loads local environment variables. `GROQ_API_KEY` stays on the server and must not be exposed in frontend variables.
 
 ## Build, development, and deployment
 
@@ -31,7 +32,7 @@ Casework (branded as TestProto in the interface) is a browser-based tool for dra
 
 1. The React UI collects project context and a test case title.
 2. The browser posts both values to `/api/generate`.
-3. The local Node server or Vercel function validates the request and calls Gemini using the server-side API key.
+3. The local Node server or Vercel function validates the request and calls Groq using the server-side API key.
 4. The API returns a JSON array of test steps for display in the UI.
 
 ## Not currently present

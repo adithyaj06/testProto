@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import { createServer } from 'node:http'
-import { describeGeminiError, generateSteps, generateTestCases } from './generateSteps.js'
+import { describeGroqError, generateSteps, generateTestCases } from './generateSteps.js'
 
 const port = Number(process.env.API_PORT ?? 3001)
 
@@ -46,7 +46,7 @@ const server = createServer(async (request, response) => {
         return
       }
       const cases = await generateTestCases(context, section, testType, 5)
-      console.info(`Gemini generated ${cases.length} test cases in ${Date.now() - startedAt}ms (context ${context.length} chars).`)
+      console.info(`Groq generated ${cases.length} test cases in ${Date.now() - startedAt}ms (context ${context.length} chars).`)
       response.writeHead(200).end(JSON.stringify({ cases }))
       return
     }
@@ -61,7 +61,7 @@ const server = createServer(async (request, response) => {
       return
     }
     const steps = await generateSteps(context, title)
-    console.info(`Gemini generation completed in ${Date.now() - startedAt}ms (context ${context.length} chars).`)
+    console.info(`Groq generation completed in ${Date.now() - startedAt}ms (context ${context.length} chars).`)
     response.writeHead(200).end(JSON.stringify({ steps }))
   } catch (error) {
     console.error('Test step generation failed:', error)
@@ -70,7 +70,7 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    const result = describeGeminiError(error)
+    const result = describeGroqError(error)
     response.writeHead(result.status).end(JSON.stringify({ error: result.message }))
   }
 })

@@ -1,147 +1,141 @@
-import { GoogleGenAI, Type } from '@google/genai'
-
 export type GeneratedStep = { step: string; expectedResult: string }
 export type GeneratedTestCase = { title: string; section: string; steps: GeneratedStep[] }
 
-export async function generateSteps(context: string, title: string): Promise<GeneratedStep[]> {
-  const apiKey = process.env.GEMINI_API_KEY
+type GroqError = { message?: unknown; code?: unknown; type?: unknown }
+type GroqResponse<T> = {
+  choices?: { message?: { content?: string | null; refusal?: string | null } }[]
+  error?: GroqError
+}
+
+class GroqApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message)
+    this.name = 'GroqApiError'
+  }
+}
+
+async function generateJson<T>(systemPrompt: string, userPrompt: string, schemaName: string, schema: object): Promise<T> {
+  const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) {
-    const error = new Error('Set GEMINI_API_KEY in your environment variables to enable generation.')
+    const error = new Error('Set GROQ_API_KEY in your environment variables to enable generation.')
     error.name = 'MissingApiKeyError'
     throw error
   }
 
-  const ai = new GoogleGenAI({ apiKey })
-  const response = await ai.models.generateContent({
-    model: process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite',
-    contents: `Project context:\n${context.trim()}\n\nTest case title:\n${title.trim()}\n\nWrite 3 to 5 short, actionable, ordered test steps. For each step, include a distinct expected result that can be observed or verified. Use only details supported by the context; state an assumption only when needed. Return no extra explanation.`,
-    config: {
-      systemInstruction: 'You write precise, actionable software test procedures based on the supplied project context and test case title.',
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          steps: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                step: { type: Type.STRING },
-                expectedResult: { type: Type.STRING },
-              },
-              required: ['step', 'expectedResult'],
-            },
-          },
-        },
-        required: ['steps'],
-      },
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify({
+      model: process.env.GROQ_MODEL ?? 'openai/gpt-oss-20b',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      reasoning_effort: 'low',
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: schemaName, strict: true, schema },
+      },
+    }),
   })
 
-  const content = response.text
-  if (!content) throw new Error('The model returned an empty response.')
-
-  const parsed: unknown = JSON.parse(content)
-  if (!parsed || typeof parsed !== 'object' || !('steps' in parsed) || !Array.isArray(parsed.steps)) {
-    throw new Error('The model response did not contain a valid steps array.')
+  const result = await response.json() as GroqResponse<T>
+  if (!response.ok) {
+    const message = typeof result.error?.message === 'string' ? result.error.message : 'Groq request failed.'
+    const code = typeof result.error?.code === 'string' ? result.error.code : undefined
+    throw new GroqApiError(message, response.status, code)
   }
 
-  const steps = parsed.steps.filter((step): step is GeneratedStep =>
-    !!step && typeof step === 'object' && 'step' in step && typeof step.step === 'string' && step.step.trim().length > 0
-      && 'expectedResult' in step && typeof step.expectedResult === 'string' && step.expectedResult.trim().length > 0,
-  )
-  if (steps.length === 0) throw new Error('The model did not return any test steps.')
+  const choice = result.choices?.[0]?.message
+  if (choice?.refusal) throw new Error('Groq could not generate this content. Please revise the project context or request.')
+  if (!choice?.content) throw new Error('Groq returned an empty response.')
+  return JSON.parse(choice.content) as T
+}
 
+const stepSchema = {
+  type: 'object',
+  properties: {
+    step: { type: 'string' },
+    expectedResult: { type: 'string' },
+  },
+  required: ['step', 'expectedResult'],
+  additionalProperties: false,
+}
+
+export async function generateSteps(context: string, title: string): Promise<GeneratedStep[]> {
+  const result = await generateJson<{ steps: GeneratedStep[] }>(
+    'You write precise, actionable software test procedures based on the supplied project context and test case title.',
+    `Project context:\n${context.trim()}\n\nTest case title:\n${title.trim()}\n\nWrite 3 to 5 short, actionable, ordered test steps. For each step, include a distinct expected result that can be observed or verified. Use only details supported by the context; state an assumption only when needed. Return no extra explanation.`,
+    'test_steps',
+    {
+      type: 'object',
+      properties: { steps: { type: 'array', items: stepSchema } },
+      required: ['steps'],
+      additionalProperties: false,
+    },
+  )
+
+  if (!result || !Array.isArray(result.steps)) throw new Error('Groq did not return a valid steps array.')
+  const steps = result.steps.filter(isGeneratedStep)
+  if (!steps.length) throw new Error('Groq did not return any valid test steps.')
   return steps
 }
 
 export async function generateTestCases(context: string, section: string, testType: string, count: number): Promise<GeneratedTestCase[]> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) {
-    const error = new Error('Set GEMINI_API_KEY in your environment variables to enable generation.')
-    error.name = 'MissingApiKeyError'
-    throw error
-  }
-
-  const ai = new GoogleGenAI({ apiKey })
-  const response = await ai.models.generateContent({
-    model: process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite',
-    contents: `Project context:\n${context.trim()}\n\nTest section: ${section.trim()}\nTest type: ${testType.trim()}\n\nGenerate exactly ${count} distinct ${testType.trim()} test cases for this section. Each case needs a concise title and 2 to 5 ordered, actionable steps. Each step must have a distinct, observable expected result. Cover meaningfully different behaviors relevant to this test type; use only details supported by the context.`,
-    config: {
-      systemInstruction: 'You create concise, non-duplicative software test cases with clear actions and verifiable expected results.',
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          cases: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                steps: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: { step: { type: Type.STRING }, expectedResult: { type: Type.STRING } },
-                    required: ['step', 'expectedResult'],
-                  },
-                },
-              },
-              required: ['title', 'steps'],
-            },
+  const result = await generateJson<{ cases: { title: string; steps: GeneratedStep[] }[] }>(
+    'You create concise, non-duplicative software test cases with clear actions and verifiable expected results.',
+    `Project context:\n${context.trim()}\n\nTest section: ${section.trim()}\nTest type: ${testType.trim()}\n\nGenerate exactly ${count} distinct ${testType.trim()} test cases for this section. Each case must have a concise title and exactly 3 short, ordered steps. Each step must describe one action and its distinct, observable expected result. Keep every field concise. Cover meaningfully different behaviors relevant to this test type; use only details supported by the context.`,
+    'test_cases',
+    {
+      type: 'object',
+      properties: {
+        cases: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { title: { type: 'string' }, steps: { type: 'array', items: stepSchema } },
+            required: ['title', 'steps'],
+            additionalProperties: false,
           },
         },
-        required: ['cases'],
       },
+      required: ['cases'],
+      additionalProperties: false,
     },
-  })
+  )
 
-  if (!response.text) throw new Error('The model returned an empty response.')
-  const parsed: unknown = JSON.parse(response.text)
-  if (!parsed || typeof parsed !== 'object' || !('cases' in parsed) || !Array.isArray(parsed.cases)) {
-    throw new Error('The model response did not contain a valid test cases array.')
-  }
-
-  const cases = parsed.cases.flatMap((item): GeneratedTestCase[] => {
-    if (!item || typeof item !== 'object' || !('title' in item) || typeof item.title !== 'string' || !item.title.trim()
-      || !('steps' in item) || !Array.isArray(item.steps)) return []
-    const steps = item.steps.filter((step): step is GeneratedStep =>
-      !!step && typeof step === 'object' && 'step' in step && typeof step.step === 'string' && !!step.step.trim()
-        && 'expectedResult' in step && typeof step.expectedResult === 'string' && !!step.expectedResult.trim(),
-    )
-    return steps.length ? [{ title: item.title.trim(), section: section.trim(), steps }] : []
+  if (!result || !Array.isArray(result.cases)) throw new Error('Groq did not return a valid test cases array.')
+  const cases = result.cases.flatMap((item): GeneratedTestCase[] => {
+    if (!item || typeof item.title !== 'string' || !item.title.trim() || !Array.isArray(item.steps)) return []
+    const steps = item.steps.filter(isGeneratedStep)
+    return steps.length === 3 ? [{ title: item.title.trim(), section: section.trim(), steps }] : []
   })
-  if (!cases.length) throw new Error('The model did not return any valid test cases.')
+  if (cases.length !== count) throw new Error(`Groq did not return ${count} valid test cases with exactly 3 steps each.`)
   return cases
 }
 
-export function describeGeminiError(error: unknown): { status: number; message: string } {
-  if (!error || typeof error !== 'object') {
-    return { status: 500, message: 'Could not generate test steps. Please try again.' }
+function isGeneratedStep(value: unknown): value is GeneratedStep {
+  return !!value && typeof value === 'object'
+    && 'step' in value && typeof value.step === 'string' && !!value.step.trim()
+    && 'expectedResult' in value && typeof value.expectedResult === 'string' && !!value.expectedResult.trim()
+}
+
+export function describeGroqError(error: unknown): { status: number; message: string } {
+  if (!(error instanceof GroqApiError)) {
+    return { status: 500, message: error instanceof Error ? error.message : 'Could not generate test content. Please try again.' }
   }
 
-  const apiError = error as { status?: unknown; message?: unknown; code?: unknown }
-  const status = typeof apiError.status === 'number' ? apiError.status : 500
-  const details = `${typeof apiError.code === 'string' ? apiError.code : ''} ${typeof apiError.message === 'string' ? apiError.message : ''}`.toLowerCase()
-
-  if (status === 401 || details.includes('api key not valid') || details.includes('api_key_invalid')) {
-    return { status: 502, message: 'Gemini rejected the API key. Check GEMINI_API_KEY in the server environment variables.' }
+  if (error.status === 401 || error.status === 403) {
+    return { status: 502, message: 'Groq rejected the API key or access to the selected model. Check GROQ_API_KEY and your Groq account access.' }
   }
-
-  if (status === 429) {
-    return {
-      status: 429,
-      message: 'Gemini usage limit reached. Check your model’s free-tier quota and rate limits in Google AI Studio, then try again later or select an available model.',
-    }
+  if (error.status === 429) {
+    return { status: 429, message: 'Groq rate limit reached. Wait a little and try again, or check your Groq account limits.' }
   }
-
-  if (status === 404) {
-    return {
-      status: 502,
-      message: 'The configured Gemini model was not found or is unavailable to this API key. Check GEMINI_MODEL.',
-    }
+  if (error.status === 404) {
+    return { status: 502, message: 'The configured Groq model was not found. Check GROQ_MODEL.' }
   }
-
-  return { status: status >= 400 && status < 600 ? 502 : 500, message: `Gemini request failed (${status}).` }
+  return { status: 502, message: `Groq request failed (${error.status}): ${error.message}` }
 }
